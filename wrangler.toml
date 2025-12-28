@@ -7,7 +7,20 @@ compatibility_date = "2024-12-01"
 workers_dev = true
 
 # MCP Server requires HTTP routes
-route = { pattern = "*/*", zone_name = "" }
+# IMPORTANT: For routes using wildcard SSL, you must specify either:
+# - zone_name: Your domain name (e.g., "example.com")
+# - zone_id: Your Cloudflare zone ID (found in your domain's dashboard)
+# 
+# Option 1: Using zone_name (recommended for readability)
+# route = { pattern = "*/*", zone_name = "your-domain.com" }
+#
+# Option 2: Using zone_id (more explicit)
+# route = { pattern = "*/*", zone_id = "your-zone-id-here" }
+#
+# For workers_dev = true without custom domain, you can remove the route line entirely
+# Uncomment and configure ONE of the following:
+
+# route = { pattern = "*/*", zone_name = "your-domain.com" }
 
 # Build configuration
 [build]
