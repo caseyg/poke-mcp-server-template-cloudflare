@@ -4,38 +4,8 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Define available tools
+// Define available tools for accessing Casey's public information
 const TOOLS: Tool[] = [
-  {
-    name: "greet",
-    description: "Greet a user by name with a welcome message from the MCP server",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "The name of the person to greet",
-        },
-      },
-      required: ["name"],
-    },
-  },
-  {
-    name: "get_server_info",
-    description: "Get information about the MCP server including name, version, and environment",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  },
-  {
-    name: "ping",
-    description: "Health check endpoint that returns a simple pong response",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  },
   {
     name: "fetchwikipage",
     description: "Fetch content from a wiki page at cag.wiki. Retrieves the HTML content of the specified page path.",
@@ -88,20 +58,6 @@ function isMCPRequest(body: unknown): body is MCPRequestBody {
   );
 }
 
-// Type guard for tool arguments
-interface GreetArgs {
-  name: string;
-}
-
-function isGreetArgs(args: unknown): args is GreetArgs {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "name" in args &&
-    typeof (args as Record<string, unknown>).name === "string"
-  );
-}
-
 // Type guard for fetchwikipage arguments
 interface FetchWikiPageArgs {
   path: string;
@@ -113,18 +69,6 @@ function isFetchWikiPageArgs(args: unknown): args is FetchWikiPageArgs {
     args !== null &&
     "path" in args &&
     typeof (args as Record<string, unknown>).path === "string"
-  );
-}
-
-// Type guard for getwikilisting arguments (empty object)
-interface GetWikiListingArgs {
-  // No required parameters
-}
-
-function isGetWikiListingArgs(args: unknown): args is GetWikiListingArgs {
-  return (
-    typeof args === "object" &&
-    args !== null
   );
 }
 
@@ -159,17 +103,16 @@ async function fetchWikiPage(path: string): Promise<{
 }> {
   // Sanitize the path - remove leading/trailing slashes
   const sanitizedPath = path.replace(/^\/+|\/+$/g, "");
-  
+
   // Construct the full URL
   const url = `https://cag.wiki/${sanitizedPath}`;
-  
+
   try {
     const response = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent": "MCP-Wiki-Fetcher/1.0",
+        "User-Agent": "CaseyMCP/1.0",
       },
-      // Set a reasonable timeout
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
@@ -183,7 +126,7 @@ async function fetchWikiPage(path: string): Promise<{
     }
 
     const content = await response.text();
-    
+
     return {
       success: true,
       status: response.status,
@@ -192,7 +135,7 @@ async function fetchWikiPage(path: string): Promise<{
     };
   } catch (error) {
     let errorMessage = "Unknown error occurred";
-    
+
     if (error instanceof Error) {
       if (error.name === "AbortError" || error.name === "TimeoutError") {
         errorMessage = "Request timeout - the wiki page took too long to respond";
@@ -202,7 +145,7 @@ async function fetchWikiPage(path: string): Promise<{
         errorMessage = error.message;
       }
     }
-    
+
     return {
       success: false,
       status: 0,
@@ -226,14 +169,13 @@ async function getWikiListing(): Promise<{
   url: string;
 }> {
   const url = "https://cag.wiki/sitemap.xml";
-  
+
   try {
     const response = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent": "MCP-Wiki-Fetcher/1.0",
+        "User-Agent": "CaseyMCP/1.0",
       },
-      // Set a reasonable timeout
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
@@ -247,31 +189,30 @@ async function getWikiListing(): Promise<{
     }
 
     const xmlContent = await response.text();
-    
+
     // Parse the XML to extract URLs
-    // Simple regex-based parsing for sitemap.xml format
     const urlPattern = /<url>\s*<loc>(.*?)<\/loc>(?:\s*<lastmod>(.*?)<\/lastmod>)?/g;
     const pages: Array<{
       path: string;
       url: string;
       lastModified?: string;
     }> = [];
-    
+
     let match;
     while ((match = urlPattern.exec(xmlContent)) !== null) {
       const fullUrl = match[1];
       const lastModified = match[2];
-      
+
       // Extract just the path portion (remove https://cag.wiki prefix)
       const path = fullUrl.replace(/^https?:\/\/cag\.wiki\/?/, '') || '/';
-      
+
       pages.push({
         path,
         url: fullUrl,
         ...(lastModified && { lastModified }),
       });
     }
-    
+
     return {
       success: true,
       status: response.status,
@@ -281,7 +222,7 @@ async function getWikiListing(): Promise<{
     };
   } catch (error) {
     let errorMessage = "Unknown error occurred";
-    
+
     if (error instanceof Error) {
       if (error.name === "AbortError" || error.name === "TimeoutError") {
         errorMessage = "Request timeout - the sitemap took too long to respond";
@@ -291,7 +232,7 @@ async function getWikiListing(): Promise<{
         errorMessage = error.message;
       }
     }
-    
+
     return {
       success: false,
       status: 0,
@@ -303,7 +244,7 @@ async function getWikiListing(): Promise<{
 
 // Cloudflare Workers fetch handler
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, _env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     // Handle CORS preflight requests
@@ -368,7 +309,6 @@ export default {
 
       // Handle different MCP methods
       if (body.method === "tools/list") {
-        // Use imported schema for validation
         const validation = ListToolsRequestSchema.safeParse(body);
         if (!validation.success) {
           throw new Error(`Invalid tools/list request: ${validation.error.message}`);
@@ -382,7 +322,6 @@ export default {
           },
         };
       } else if (body.method === "tools/call") {
-        // Use imported schema for validation
         const validation = CallToolRequestSchema.safeParse(body);
         if (!validation.success) {
           throw new Error(`Invalid tools/call request: ${validation.error.message}`);
@@ -397,74 +336,25 @@ export default {
 
         let result;
         switch (name) {
-          case "greet": {
-            if (!isGreetArgs(args)) {
-              throw new Error("Invalid arguments for greet tool");
-            }
-            const userName = args.name;
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: `Hello, ${userName}! Welcome to our sample MCP server running on Cloudflare Workers!`,
-                },
-              ],
-            };
-            break;
-          }
-
-          case "get_server_info": {
-            const info = {
-              server_name: "Sample MCP Server",
-              version: "1.0.0",
-              environment: env.ENVIRONMENT || "development",
-              runtime: "Cloudflare Workers",
-            };
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(info, null, 2),
-                },
-              ],
-            };
-            break;
-          }
-
-          case "ping": {
-            result = {
-              content: [
-                {
-                  type: "text",
-                  text: "pong",
-                },
-              ],
-            };
-            break;
-          }
-
           case "fetchwikipage": {
             if (!isFetchWikiPageArgs(args)) {
               throw new Error("Invalid arguments for fetchwikipage tool. Required: path (string)");
             }
-            
+
             const { path } = args;
-            
-            // Fetch the wiki page
             const wikiResult = await fetchWikiPage(path);
-            
+
             if (!wikiResult.success) {
-              // Return structured error information
               const errorResponse = {
                 success: false,
                 url: wikiResult.url,
                 status: wikiResult.status,
                 error: wikiResult.error,
-                message: wikiResult.status === 404 
+                message: wikiResult.status === 404
                   ? `Wiki page not found at path: ${path}`
                   : `Failed to fetch wiki page: ${wikiResult.error}`,
               };
-              
+
               result = {
                 content: [
                   {
@@ -475,7 +365,6 @@ export default {
                 isError: true,
               };
             } else {
-              // Return successful response with content
               const successResponse = {
                 success: true,
                 url: wikiResult.url,
@@ -483,7 +372,7 @@ export default {
                 contentLength: wikiResult.content?.length || 0,
                 content: wikiResult.content,
               };
-              
+
               result = {
                 content: [
                   {
@@ -497,15 +386,9 @@ export default {
           }
 
           case "getwikilisting": {
-            if (!isGetWikiListingArgs(args)) {
-              throw new Error("Invalid arguments for getwikilisting tool");
-            }
-            
-            // Fetch the wiki listing from sitemap
             const listingResult = await getWikiListing();
-            
+
             if (!listingResult.success) {
-              // Return structured error information
               const errorResponse = {
                 success: false,
                 url: listingResult.url,
@@ -513,7 +396,7 @@ export default {
                 error: listingResult.error,
                 message: `Failed to fetch wiki listing: ${listingResult.error}`,
               };
-              
+
               result = {
                 content: [
                   {
@@ -524,7 +407,6 @@ export default {
                 isError: true,
               };
             } else {
-              // Return successful response with page listing
               const successResponse = {
                 success: true,
                 url: listingResult.url,
@@ -532,7 +414,7 @@ export default {
                 count: listingResult.count,
                 pages: listingResult.pages,
               };
-              
+
               result = {
                 content: [
                   {
@@ -572,13 +454,12 @@ export default {
               },
             },
             serverInfo: {
-              name: "Sample MCP Server",
+              name: "Casey's Public Info MCP",
               version: "1.0.0",
             },
           },
         };
       } else if (body.method === "notifications/initialized") {
-        // Handle initialized notification (no response needed for notifications)
         return new Response(null, {
           status: 204,
           headers: getCorsHeaders(),
@@ -590,8 +471,7 @@ export default {
       return createJsonResponse(responseData);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      
-      // Try to extract request id from the original request if possible
+
       let requestId: string | number | undefined;
       try {
         const body = await request.clone().json();

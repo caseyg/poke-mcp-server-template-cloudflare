@@ -1,7 +1,7 @@
 {
-  "name": "poke-mcp-server-cloudflare",
+  "name": "casey-mcp-server",
   "version": "1.0.0",
-  "description": "MCP Server deployed on Cloudflare Workers",
+  "description": "MCP Server for Casey Gollan's public information",
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
