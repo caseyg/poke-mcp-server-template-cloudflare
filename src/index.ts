@@ -50,6 +50,14 @@ const TOOLS: Tool[] = [
       required: ["path"],
     },
   },
+  {
+    name: "getwikilisting",
+    description: "Get a listing of all available wiki pages from the sitemap. Returns a structured list of pages with their URLs and metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
 ];
 
 // Cloudflare Workers environment interface
@@ -105,6 +113,18 @@ function isFetchWikiPageArgs(args: unknown): args is FetchWikiPageArgs {
     args !== null &&
     "path" in args &&
     typeof (args as Record<string, unknown>).path === "string"
+  );
+}
+
+// Type guard for getwikilisting arguments (empty object)
+interface GetWikiListingArgs {
+  // No required parameters
+}
+
+function isGetWikiListingArgs(args: unknown): args is GetWikiListingArgs {
+  return (
+    typeof args === "object" &&
+    args !== null
   );
 }
 
@@ -176,6 +196,95 @@ async function fetchWikiPage(path: string): Promise<{
     if (error instanceof Error) {
       if (error.name === "AbortError" || error.name === "TimeoutError") {
         errorMessage = "Request timeout - the wiki page took too long to respond";
+      } else if (error.message.includes("fetch")) {
+        errorMessage = `Network error: ${error.message}`;
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
+    return {
+      success: false,
+      status: 0,
+      error: errorMessage,
+      url,
+    };
+  }
+}
+
+// Helper function to fetch and parse wiki listing from sitemap
+async function getWikiListing(): Promise<{
+  success: boolean;
+  status: number;
+  pages?: Array<{
+    path: string;
+    url: string;
+    lastModified?: string;
+  }>;
+  count?: number;
+  error?: string;
+  url: string;
+}> {
+  const url = "https://cag.wiki/sitemap.xml";
+  
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "MCP-Wiki-Fetcher/1.0",
+      },
+      // Set a reasonable timeout
+      signal: AbortSignal.timeout(10000), // 10 second timeout
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        status: response.status,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+        url,
+      };
+    }
+
+    const xmlContent = await response.text();
+    
+    // Parse the XML to extract URLs
+    // Simple regex-based parsing for sitemap.xml format
+    const urlPattern = /<url>\s*<loc>(.*?)<\/loc>(?:\s*<lastmod>(.*?)<\/lastmod>)?/g;
+    const pages: Array<{
+      path: string;
+      url: string;
+      lastModified?: string;
+    }> = [];
+    
+    let match;
+    while ((match = urlPattern.exec(xmlContent)) !== null) {
+      const fullUrl = match[1];
+      const lastModified = match[2];
+      
+      // Extract just the path portion (remove https://cag.wiki prefix)
+      const path = fullUrl.replace(/^https?:\/\/cag\.wiki\/?/, '') || '/';
+      
+      pages.push({
+        path,
+        url: fullUrl,
+        ...(lastModified && { lastModified }),
+      });
+    }
+    
+    return {
+      success: true,
+      status: response.status,
+      pages,
+      count: pages.length,
+      url,
+    };
+  } catch (error) {
+    let errorMessage = "Unknown error occurred";
+    
+    if (error instanceof Error) {
+      if (error.name === "AbortError" || error.name === "TimeoutError") {
+        errorMessage = "Request timeout - the sitemap took too long to respond";
       } else if (error.message.includes("fetch")) {
         errorMessage = `Network error: ${error.message}`;
       } else {
@@ -373,6 +482,55 @@ export default {
                 status: wikiResult.status,
                 contentLength: wikiResult.content?.length || 0,
                 content: wikiResult.content,
+              };
+              
+              result = {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(successResponse, null, 2),
+                  },
+                ],
+              };
+            }
+            break;
+          }
+
+          case "getwikilisting": {
+            if (!isGetWikiListingArgs(args)) {
+              throw new Error("Invalid arguments for getwikilisting tool");
+            }
+            
+            // Fetch the wiki listing from sitemap
+            const listingResult = await getWikiListing();
+            
+            if (!listingResult.success) {
+              // Return structured error information
+              const errorResponse = {
+                success: false,
+                url: listingResult.url,
+                status: listingResult.status,
+                error: listingResult.error,
+                message: `Failed to fetch wiki listing: ${listingResult.error}`,
+              };
+              
+              result = {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(errorResponse, null, 2),
+                  },
+                ],
+                isError: true,
+              };
+            } else {
+              // Return successful response with page listing
+              const successResponse = {
+                success: true,
+                url: listingResult.url,
+                status: listingResult.status,
+                count: listingResult.count,
+                pages: listingResult.pages,
               };
               
               result = {
