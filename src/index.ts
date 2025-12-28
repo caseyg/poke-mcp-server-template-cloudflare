@@ -28,6 +28,14 @@ const TOOLS: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "ping",
+    description: "Health check endpoint that returns a simple pong response",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
 ];
 
 // Cloudflare Workers environment interface
@@ -72,28 +80,77 @@ function isGreetArgs(args: unknown): args is GreetArgs {
   );
 }
 
+// Helper function to get comprehensive CORS headers
+function getCorsHeaders(): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Request-ID",
+    "Access-Control-Max-Age": "86400", // 24 hours
+  };
+}
+
+// Helper function to create JSON response with CORS
+function createJsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...getCorsHeaders(),
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 // Cloudflare Workers fetch handler
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
     // Handle CORS preflight requests
     if (request.method === "OPTIONS") {
       return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
+        headers: getCorsHeaders(),
       });
+    }
+
+    // Route validation - only accept /mcp endpoint for MCP protocol
+    if (url.pathname !== "/mcp" && url.pathname !== "/") {
+      return createJsonResponse(
+        {
+          error: {
+            code: -32000,
+            message: `Invalid endpoint. Use /mcp for MCP protocol requests.`,
+          },
+        },
+        404
+      );
     }
 
     // Only accept POST requests for MCP protocol
     if (request.method !== "POST") {
-      return new Response("Method not allowed. Use POST for MCP requests.", {
-        status: 405,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
+      return createJsonResponse(
+        {
+          error: {
+            code: -32000,
+            message: "Method not allowed. Use POST for MCP requests.",
+          },
         },
-      });
+        405
+      );
+    }
+
+    // Validate Content-Type for JSON requests
+    const contentType = request.headers.get("Content-Type");
+    if (!contentType || !contentType.includes("application/json")) {
+      return createJsonResponse(
+        {
+          error: {
+            code: -32700,
+            message: "Invalid Content-Type. Expected application/json.",
+          },
+        },
+        400
+      );
     }
 
     try {
@@ -105,18 +162,32 @@ export default {
         throw new Error("Invalid MCP request format");
       }
 
+      const requestId = body.id;
+
       let responseData: unknown = null;
 
       // Handle different MCP methods
       if (body.method === "tools/list") {
+        // Use imported schema for validation
+        const validation = ListToolsRequestSchema.safeParse(body);
+        if (!validation.success) {
+          throw new Error(`Invalid tools/list request: ${validation.error.message}`);
+        }
+
         responseData = {
           jsonrpc: "2.0",
-          id: body.id,
+          id: requestId,
           result: {
             tools: TOOLS,
           },
         };
       } else if (body.method === "tools/call") {
+        // Use imported schema for validation
+        const validation = CallToolRequestSchema.safeParse(body);
+        if (!validation.success) {
+          throw new Error(`Invalid tools/call request: ${validation.error.message}`);
+        }
+
         const params = body.params;
         if (!params || !params.name) {
           throw new Error("Missing tool name in request");
@@ -160,23 +231,43 @@ export default {
             break;
           }
 
+          case "ping": {
+            result = {
+              content: [
+                {
+                  type: "text",
+                  text: "pong",
+                },
+              ],
+            };
+            break;
+          }
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
 
         responseData = {
           jsonrpc: "2.0",
-          id: body.id,
+          id: requestId,
           result,
         };
       } else if (body.method === "initialize") {
         responseData = {
           jsonrpc: "2.0",
-          id: body.id,
+          id: requestId,
           result: {
             protocolVersion: "2024-11-05",
             capabilities: {
-              tools: {},
+              tools: {
+                listChanged: false,
+              },
+              prompts: {
+                listChanged: false,
+              },
+              resources: {
+                listChanged: false,
+              },
             },
             serverInfo: {
               name: "Sample MCP Server",
@@ -184,33 +275,41 @@ export default {
             },
           },
         };
+      } else if (body.method === "notifications/initialized") {
+        // Handle initialized notification (no response needed for notifications)
+        return new Response(null, {
+          status: 204,
+          headers: getCorsHeaders(),
+        });
       } else {
         throw new Error(`Unknown method: ${body.method}`);
       }
 
-      return new Response(JSON.stringify(responseData), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-      });
+      return createJsonResponse(responseData);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return new Response(
-        JSON.stringify({
+      
+      // Try to extract request id from the original request if possible
+      let requestId: string | number | undefined;
+      try {
+        const body = await request.clone().json();
+        if (isMCPRequest(body)) {
+          requestId = body.id;
+        }
+      } catch {
+        // If we can't parse the request, continue without request id
+      }
+
+      return createJsonResponse(
+        {
           jsonrpc: "2.0",
+          ...(requestId !== undefined && { id: requestId }),
           error: {
             code: -32603,
             message: errorMessage,
           },
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-        }
+        },
+        500
       );
     }
   },
