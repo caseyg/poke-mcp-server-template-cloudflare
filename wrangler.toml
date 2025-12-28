@@ -1,0 +1,41 @@
+# Cloudflare Workers configuration for MCP Server
+name = "poke-mcp-server"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Worker configuration
+workers_dev = true
+
+# MCP Server requires HTTP routes
+route = { pattern = "*/*", zone_name = "" }
+
+# Build configuration
+[build]
+command = "npm run build"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+
+# CORS settings for MCP server
+[env.production]
+name = "poke-mcp-server"
+
+[env.development]
+name = "poke-mcp-server-dev"
+
+# Durable Objects (if needed for stateful MCP operations)
+# [[durable_objects.bindings]]
+# name = "MCP_STATE"
+# class_name = "MCPState"
+# script_name = "poke-mcp-server"
+
+# KV Namespaces (if needed for caching)
+# [[kv_namespaces]]
+# binding = "MCP_CACHE"
+# id = "your-kv-namespace-id"
+
+# R2 Buckets (if needed for object storage)
+# [[r2_buckets]]
+# binding = "MCP_STORAGE"
+# bucket_name = "mcp-data"
