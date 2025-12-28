@@ -4,7 +4,10 @@ An MCP server for accessing Casey Gollan's public information, running on Cloudf
 
 ## Available Tools
 
-- **getwiki** - Access Casey's wiki at cag.wiki. Call without args to list pages, or with `path` to get page content.
+- **getwiki** - Access Casey's wiki (cag.wiki). Omit `path` to list pages, or provide to get content.
+- **getblog** - Access Casey's blog (caseyagollan.com). Omit `slug` to list posts, or provide to get content.
+- **getgithub** - Access GitHub (github.com/caseyg). Omit `repo` for profile + repos, or provide for repo details.
+- **getmastodon** - Access Mastodon (social.coop/@CaseyG). Optional `limit` (default 10, max 40).
 
 ## Local Development
 

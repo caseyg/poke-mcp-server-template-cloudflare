@@ -33,15 +33,10 @@ bun run deploy       # Deploy to Cloudflare Workers
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `getwiki` | Access Casey's wiki. Returns page list when called without path, or page text content with path. | `path` (string, optional) |
-
-## Planned Tools (Future)
-
-| Tool | Description | Source |
-|------|-------------|--------|
-| `getblog` | Fetch blog posts (list or specific post) | caseyagollan.com/posts |
-| `getgithub` | GitHub repos/profile info | github.com/caseyg |
-| `getmastodon` | Recent social posts | social.coop/@CaseyG |
+| `getwiki` | Access Casey's wiki at cag.wiki | `path` (optional) - omit to list pages |
+| `getblog` | Access Casey's blog at caseyagollan.com | `slug` (optional) - omit to list posts |
+| `getgithub` | Access GitHub profile/repos at github.com/caseyg | `repo` (optional) - omit for profile + repo list |
+| `getmastodon` | Access Mastodon posts at social.coop/@CaseyG | `limit` (optional, default 10, max 40) |
 
 ## Code Patterns
 
