@@ -36,6 +36,20 @@ const TOOLS: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "fetchwikipage",
+    description: "Fetch content from a wiki page at cag.wiki. Retrieves the HTML content of the specified page path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "The path of the wiki page to fetch (e.g., 'home', 'about', 'docs/guide')",
+        },
+      },
+      required: ["path"],
+    },
+  },
 ];
 
 // Cloudflare Workers environment interface
@@ -80,6 +94,20 @@ function isGreetArgs(args: unknown): args is GreetArgs {
   );
 }
 
+// Type guard for fetchwikipage arguments
+interface FetchWikiPageArgs {
+  path: string;
+}
+
+function isFetchWikiPageArgs(args: unknown): args is FetchWikiPageArgs {
+  return (
+    typeof args === "object" &&
+    args !== null &&
+    "path" in args &&
+    typeof (args as Record<string, unknown>).path === "string"
+  );
+}
+
 // Helper function to get comprehensive CORS headers
 function getCorsHeaders(): Record<string, string> {
   return {
@@ -99,6 +127,69 @@ function createJsonResponse(data: unknown, status = 200): Response {
       "Content-Type": "application/json",
     },
   });
+}
+
+// Helper function to fetch wiki page content
+async function fetchWikiPage(path: string): Promise<{
+  success: boolean;
+  status: number;
+  content?: string;
+  error?: string;
+  url: string;
+}> {
+  // Sanitize the path - remove leading/trailing slashes
+  const sanitizedPath = path.replace(/^\/+|\/+$/g, "");
+  
+  // Construct the full URL
+  const url = `https://cag.wiki/${sanitizedPath}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "MCP-Wiki-Fetcher/1.0",
+      },
+      // Set a reasonable timeout
+      signal: AbortSignal.timeout(10000), // 10 second timeout
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        status: response.status,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+        url,
+      };
+    }
+
+    const content = await response.text();
+    
+    return {
+      success: true,
+      status: response.status,
+      content,
+      url,
+    };
+  } catch (error) {
+    let errorMessage = "Unknown error occurred";
+    
+    if (error instanceof Error) {
+      if (error.name === "AbortError" || error.name === "TimeoutError") {
+        errorMessage = "Request timeout - the wiki page took too long to respond";
+      } else if (error.message.includes("fetch")) {
+        errorMessage = `Network error: ${error.message}`;
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
+    return {
+      success: false,
+      status: 0,
+      error: errorMessage,
+      url,
+    };
+  }
 }
 
 // Cloudflare Workers fetch handler
@@ -240,6 +331,59 @@ export default {
                 },
               ],
             };
+            break;
+          }
+
+          case "fetchwikipage": {
+            if (!isFetchWikiPageArgs(args)) {
+              throw new Error("Invalid arguments for fetchwikipage tool. Required: path (string)");
+            }
+            
+            const { path } = args;
+            
+            // Fetch the wiki page
+            const wikiResult = await fetchWikiPage(path);
+            
+            if (!wikiResult.success) {
+              // Return structured error information
+              const errorResponse = {
+                success: false,
+                url: wikiResult.url,
+                status: wikiResult.status,
+                error: wikiResult.error,
+                message: wikiResult.status === 404 
+                  ? `Wiki page not found at path: ${path}`
+                  : `Failed to fetch wiki page: ${wikiResult.error}`,
+              };
+              
+              result = {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(errorResponse, null, 2),
+                  },
+                ],
+                isError: true,
+              };
+            } else {
+              // Return successful response with content
+              const successResponse = {
+                success: true,
+                url: wikiResult.url,
+                status: wikiResult.status,
+                contentLength: wikiResult.content?.length || 0,
+                content: wikiResult.content,
+              };
+              
+              result = {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(successResponse, null, 2),
+                  },
+                ],
+              };
+            }
             break;
           }
 
