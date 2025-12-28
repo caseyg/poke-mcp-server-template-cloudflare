@@ -43,7 +43,6 @@ Based on Casey's online presence, these tools could be added:
 ### Blog/Website Tools
 - `fetchblogpost` - Fetch posts from caseyagollan.com/posts
 - `getblogindex` - List all blog posts
-- `fetchhirepage` - Get content from hire.caseyagollan.com
 
 ### GitHub Tools
 - `getgithubrepos` - List Casey's public repositories (github.com/caseyg)
@@ -122,7 +121,6 @@ const response = await fetch(url, {
 |--------|-----|-------|
 | Wiki | cag.wiki | Personal wiki (integrated) |
 | Blog | caseyagollan.com/posts | Personal blog |
-| Hire | hire.caseyagollan.com | Services/portfolio |
 | Notes | notes.caseyagollan.com | Tumblr-style notes |
 | GitHub | github.com/caseyg | 124 repositories |
 | Mastodon | social.coop/@CaseyG | Social |

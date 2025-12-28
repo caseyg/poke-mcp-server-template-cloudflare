@@ -7,10 +7,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "tsc && esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js",
+    "build": "bun build src/index.ts --outfile=dist/index.js --format=esm --target=browser",
     "start": "wrangler dev",
-    "test": "vitest",
-    "type-check": "tsc --noEmit"
+    "test": "bun test",
+    "type-check": "bun x tsc --noEmit"
   },
   "keywords": [
     "mcp",
@@ -26,9 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.20.0",
     "typescript": "^5.3.0",
-    "vitest": "^1.0.0",
     "wrangler": "^3.86.0"
   }
 }

@@ -6,7 +6,7 @@ compatibility_date = "2024-12-01"
 workers_dev = true
 
 [build]
-command = "bun run build"
+command = "bun build src/index.ts --outfile=dist/index.js --format=esm --target=browser"
 
 [vars]
 ENVIRONMENT = "production"
