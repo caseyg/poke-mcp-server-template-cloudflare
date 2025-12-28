@@ -1,5 +1,3 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -37,68 +35,46 @@ interface Env {
   ENVIRONMENT?: string;
 }
 
-// Create MCP server instance
-const server = new Server(
-  {
-    name: "Sample MCP Server",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
-
-// Handle list_tools request
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: TOOLS,
+// Type guard for MCP request body
+interface MCPRequestBody {
+  jsonrpc?: string;
+  id?: string | number;
+  method?: string;
+  params?: {
+    name?: string;
+    arguments?: Record<string, unknown>;
   };
-});
+}
 
-// Handle call_tool request
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  switch (name) {
-    case "greet": {
-      const userName = (args as { name: string }).name;
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Hello, ${userName}! Welcome to our sample MCP server running on Cloudflare Workers!`,
-          },
-        ],
-      };
-    }
-
-    case "get_server_info": {
-      const info = {
-        server_name: "Sample MCP Server",
-        version: "1.0.0",
-        environment: process.env.ENVIRONMENT || "development",
-        runtime: "Cloudflare Workers",
-      };
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(info, null, 2),
-          },
-        ],
-      };
-    }
-
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+// Type guard function to validate MCP request
+function isMCPRequest(body: unknown): body is MCPRequestBody {
+  if (typeof body !== "object" || body === null) {
+    return false;
   }
-});
+  const obj = body as Record<string, unknown>;
+  return (
+    typeof obj.method === "string" &&
+    (obj.id === undefined || typeof obj.id === "string" || typeof obj.id === "number")
+  );
+}
+
+// Type guard for tool arguments
+interface GreetArgs {
+  name: string;
+}
+
+function isGreetArgs(args: unknown): args is GreetArgs {
+  return (
+    typeof args === "object" &&
+    args !== null &&
+    "name" in args &&
+    typeof (args as Record<string, unknown>).name === "string"
+  );
+}
 
 // Cloudflare Workers fetch handler
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     // Handle CORS preflight requests
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -121,11 +97,15 @@ export default {
     }
 
     try {
-      // Parse the incoming MCP request
+      // Parse the incoming MCP request with proper type checking
       const body = await request.json();
 
-      // Create a mock transport for handling the request
-      let responseData: any = null;
+      // Validate the request body
+      if (!isMCPRequest(body)) {
+        throw new Error("Invalid MCP request format");
+      }
+
+      let responseData: unknown = null;
 
       // Handle different MCP methods
       if (body.method === "tools/list") {
@@ -137,11 +117,19 @@ export default {
           },
         };
       } else if (body.method === "tools/call") {
-        const { name, arguments: args } = body.params;
+        const params = body.params;
+        if (!params || !params.name) {
+          throw new Error("Missing tool name in request");
+        }
+
+        const { name, arguments: args } = params;
 
         let result;
         switch (name) {
           case "greet": {
+            if (!isGreetArgs(args)) {
+              throw new Error("Invalid arguments for greet tool");
+            }
             const userName = args.name;
             result = {
               content: [
