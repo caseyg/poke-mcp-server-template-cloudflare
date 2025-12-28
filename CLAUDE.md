@@ -33,24 +33,15 @@ bun run deploy       # Deploy to Cloudflare Workers
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `fetchwikipage` | Fetch content from cag.wiki | `path` (string, required) |
-| `getwikilisting` | List all wiki pages from sitemap | None |
+| `getwiki` | Access Casey's wiki. Returns page list when called without path, or page text content with path. | `path` (string, optional) |
 
 ## Planned Tools (Future)
 
-Based on Casey's online presence, these tools could be added:
-
-### Blog/Website Tools
-- `fetchblogpost` - Fetch posts from caseyagollan.com/posts
-- `getblogindex` - List all blog posts
-
-### GitHub Tools
-- `getgithubrepos` - List Casey's public repositories (github.com/caseyg)
-- `getgithubprofile` - Fetch GitHub profile info
-- `searchgithubrepos` - Search repos by topic/language
-
-### Social Tools
-- `getmastodonposts` - Fetch recent posts from social.coop/@CaseyG
+| Tool | Description | Source |
+|------|-------------|--------|
+| `getblog` | Fetch blog posts (list or specific post) | caseyagollan.com/posts |
+| `getgithub` | GitHub repos/profile info | github.com/caseyg |
+| `getmastodon` | Recent social posts | social.coop/@CaseyG |
 
 ## Code Patterns
 

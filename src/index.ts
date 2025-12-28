@@ -4,38 +4,24 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Define available tools for accessing Casey's public information
+// Single consolidated tool for wiki access
 const TOOLS: Tool[] = [
   {
-    name: "fetchwikipage",
-    description: "Fetch content from a wiki page at cag.wiki. Retrieves the HTML content of the specified page path.",
+    name: "getwiki",
+    description: "Access Casey's personal wiki at cag.wiki. Without a path, returns a list of all available pages. With a path, returns the text content of that page.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "The path of the wiki page to fetch (e.g., 'home', 'about', 'docs/guide')",
+          description: "Optional page path (e.g., 'about', 'projects/foo'). Omit to list all pages.",
         },
       },
-      required: ["path"],
-    },
-  },
-  {
-    name: "getwikilisting",
-    description: "Get a listing of all available wiki pages from the sitemap. Returns a structured list of pages with their URLs and metadata.",
-    inputSchema: {
-      type: "object",
-      properties: {},
     },
   },
 ];
 
-// Cloudflare Workers environment interface
-interface Env {
-  ENVIRONMENT?: string;
-}
-
-// Type guard for MCP request body
+// Type guards
 interface MCPRequestBody {
   jsonrpc?: string;
   id?: string | number;
@@ -46,453 +32,234 @@ interface MCPRequestBody {
   };
 }
 
-// Type guard function to validate MCP request
 function isMCPRequest(body: unknown): body is MCPRequestBody {
-  if (typeof body !== "object" || body === null) {
-    return false;
-  }
+  if (typeof body !== "object" || body === null) return false;
   const obj = body as Record<string, unknown>;
-  return (
-    typeof obj.method === "string" &&
-    (obj.id === undefined || typeof obj.id === "string" || typeof obj.id === "number")
-  );
+  return typeof obj.method === "string" &&
+    (obj.id === undefined || typeof obj.id === "string" || typeof obj.id === "number");
 }
 
-// Type guard for fetchwikipage arguments
-interface FetchWikiPageArgs {
-  path: string;
+interface GetWikiArgs {
+  path?: string;
 }
 
-function isFetchWikiPageArgs(args: unknown): args is FetchWikiPageArgs {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "path" in args &&
-    typeof (args as Record<string, unknown>).path === "string"
-  );
+function isGetWikiArgs(args: unknown): args is GetWikiArgs {
+  if (typeof args !== "object" || args === null) return true; // Empty object is valid
+  const obj = args as Record<string, unknown>;
+  return !("path" in obj) || typeof obj.path === "string";
 }
 
-// Helper function to get comprehensive CORS headers
+// Extract text content from HTML
+function extractText(html: string): string {
+  // Remove script and style elements
+  let text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+
+  // Remove HTML tags but preserve some structure
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<\/p>/gi, '\n\n');
+  text = text.replace(/<\/div>/gi, '\n');
+  text = text.replace(/<\/h[1-6]>/gi, '\n\n');
+  text = text.replace(/<li>/gi, '• ');
+  text = text.replace(/<\/li>/gi, '\n');
+  text = text.replace(/<[^>]+>/g, '');
+
+  // Decode HTML entities
+  text = text.replace(/&nbsp;/g, ' ');
+  text = text.replace(/&amp;/g, '&');
+  text = text.replace(/&lt;/g, '<');
+  text = text.replace(/&gt;/g, '>');
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+
+  // Clean up whitespace
+  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.replace(/[ \t]+/g, ' ');
+  text = text.trim();
+
+  return text;
+}
+
+// CORS headers
 function getCorsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin, X-Request-ID",
-    "Access-Control-Max-Age": "86400", // 24 hours
+    "Access-Control-Max-Age": "86400",
   };
 }
 
-// Helper function to create JSON response with CORS
 function createJsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      ...getCorsHeaders(),
-      "Content-Type": "application/json",
-    },
+    headers: { ...getCorsHeaders(), "Content-Type": "application/json" },
   });
 }
 
-// Helper function to fetch wiki page content
-async function fetchWikiPage(path: string): Promise<{
-  success: boolean;
-  status: number;
-  content?: string;
-  error?: string;
-  url: string;
-}> {
-  // Sanitize the path - remove leading/trailing slashes
+// Fetch a wiki page and extract text
+async function fetchWikiPage(path: string): Promise<{ text?: string; error?: string; url: string }> {
   const sanitizedPath = path.replace(/^\/+|\/+$/g, "");
-
-  // Construct the full URL
   const url = `https://cag.wiki/${sanitizedPath}`;
 
   try {
     const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "CaseyMCP/1.0",
-      },
-      signal: AbortSignal.timeout(10000), // 10 second timeout
+      headers: { "User-Agent": "CaseyMCP/1.0" },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
-      return {
-        success: false,
-        status: response.status,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-        url,
-      };
+      return { error: `Page not found: ${path}`, url };
     }
 
-    const content = await response.text();
-
-    return {
-      success: true,
-      status: response.status,
-      content,
-      url,
-    };
+    const html = await response.text();
+    return { text: extractText(html), url };
   } catch (error) {
-    let errorMessage = "Unknown error occurred";
-
-    if (error instanceof Error) {
-      if (error.name === "AbortError" || error.name === "TimeoutError") {
-        errorMessage = "Request timeout - the wiki page took too long to respond";
-      } else if (error.message.includes("fetch")) {
-        errorMessage = `Network error: ${error.message}`;
-      } else {
-        errorMessage = error.message;
-      }
-    }
-
-    return {
-      success: false,
-      status: 0,
-      error: errorMessage,
-      url,
-    };
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return { error: msg, url };
   }
 }
 
-// Helper function to fetch and parse wiki listing from sitemap
-async function getWikiListing(): Promise<{
-  success: boolean;
-  status: number;
-  pages?: Array<{
-    path: string;
-    url: string;
-    lastModified?: string;
-  }>;
-  count?: number;
-  error?: string;
-  url: string;
-}> {
-  const url = "https://cag.wiki/sitemap.xml";
-
+// Get list of all wiki pages from sitemap
+async function getWikiPages(): Promise<{ pages?: string[]; error?: string }> {
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "CaseyMCP/1.0",
-      },
-      signal: AbortSignal.timeout(10000), // 10 second timeout
+    const response = await fetch("https://cag.wiki/sitemap.xml", {
+      headers: { "User-Agent": "CaseyMCP/1.0" },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
-      return {
-        success: false,
-        status: response.status,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-        url,
-      };
+      return { error: "Could not fetch wiki sitemap" };
     }
 
-    const xmlContent = await response.text();
-
-    // Parse the XML to extract URLs
-    const urlPattern = /<url>\s*<loc>(.*?)<\/loc>(?:\s*<lastmod>(.*?)<\/lastmod>)?/g;
-    const pages: Array<{
-      path: string;
-      url: string;
-      lastModified?: string;
-    }> = [];
+    const xml = await response.text();
+    const pages: string[] = [];
+    const pattern = /<loc>https?:\/\/cag\.wiki\/?([^<]*)<\/loc>/g;
 
     let match;
-    while ((match = urlPattern.exec(xmlContent)) !== null) {
-      const fullUrl = match[1];
-      const lastModified = match[2];
-
-      // Extract just the path portion (remove https://cag.wiki prefix)
-      const path = fullUrl.replace(/^https?:\/\/cag\.wiki\/?/, '') || '/';
-
-      pages.push({
-        path,
-        url: fullUrl,
-        ...(lastModified && { lastModified }),
-      });
+    while ((match = pattern.exec(xml)) !== null) {
+      pages.push(match[1] || "/");
     }
 
-    return {
-      success: true,
-      status: response.status,
-      pages,
-      count: pages.length,
-      url,
-    };
+    return { pages };
   } catch (error) {
-    let errorMessage = "Unknown error occurred";
-
-    if (error instanceof Error) {
-      if (error.name === "AbortError" || error.name === "TimeoutError") {
-        errorMessage = "Request timeout - the sitemap took too long to respond";
-      } else if (error.message.includes("fetch")) {
-        errorMessage = `Network error: ${error.message}`;
-      } else {
-        errorMessage = error.message;
-      }
-    }
-
-    return {
-      success: false,
-      status: 0,
-      error: errorMessage,
-      url,
-    };
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return { error: msg };
   }
 }
 
-// Cloudflare Workers fetch handler
+// Main handler
 export default {
-  async fetch(request: Request, _env: Env): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // Handle CORS preflight requests
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: getCorsHeaders(),
-      });
+      return new Response(null, { headers: getCorsHeaders() });
     }
 
-    // Route validation - only accept /mcp endpoint for MCP protocol
     if (url.pathname !== "/mcp" && url.pathname !== "/") {
-      return createJsonResponse(
-        {
-          error: {
-            code: -32000,
-            message: `Invalid endpoint. Use /mcp for MCP protocol requests.`,
-          },
-        },
-        404
-      );
+      return createJsonResponse({ error: { code: -32000, message: "Use /mcp endpoint" } }, 404);
     }
 
-    // Only accept POST requests for MCP protocol
     if (request.method !== "POST") {
-      return createJsonResponse(
-        {
-          error: {
-            code: -32000,
-            message: "Method not allowed. Use POST for MCP requests.",
-          },
-        },
-        405
-      );
+      return createJsonResponse({ error: { code: -32000, message: "POST required" } }, 405);
     }
 
-    // Validate Content-Type for JSON requests
     const contentType = request.headers.get("Content-Type");
-    if (!contentType || !contentType.includes("application/json")) {
-      return createJsonResponse(
-        {
-          error: {
-            code: -32700,
-            message: "Invalid Content-Type. Expected application/json.",
-          },
-        },
-        400
-      );
+    if (!contentType?.includes("application/json")) {
+      return createJsonResponse({ error: { code: -32700, message: "JSON required" } }, 400);
     }
 
     try {
-      // Parse the incoming MCP request with proper type checking
       const body = await request.json();
-
-      // Validate the request body
-      if (!isMCPRequest(body)) {
-        throw new Error("Invalid MCP request format");
-      }
+      if (!isMCPRequest(body)) throw new Error("Invalid MCP request");
 
       const requestId = body.id;
 
-      let responseData: unknown = null;
-
-      // Handle different MCP methods
       if (body.method === "tools/list") {
-        const validation = ListToolsRequestSchema.safeParse(body);
-        if (!validation.success) {
-          throw new Error(`Invalid tools/list request: ${validation.error.message}`);
-        }
-
-        responseData = {
+        ListToolsRequestSchema.safeParse(body);
+        return createJsonResponse({
           jsonrpc: "2.0",
           id: requestId,
-          result: {
-            tools: TOOLS,
-          },
-        };
-      } else if (body.method === "tools/call") {
-        const validation = CallToolRequestSchema.safeParse(body);
-        if (!validation.success) {
-          throw new Error(`Invalid tools/call request: ${validation.error.message}`);
-        }
+          result: { tools: TOOLS },
+        });
+      }
 
+      if (body.method === "tools/call") {
+        CallToolRequestSchema.safeParse(body);
         const params = body.params;
-        if (!params || !params.name) {
-          throw new Error("Missing tool name in request");
-        }
+        if (!params?.name) throw new Error("Missing tool name");
 
         const { name, arguments: args } = params;
 
-        let result;
-        switch (name) {
-          case "fetchwikipage": {
-            if (!isFetchWikiPageArgs(args)) {
-              throw new Error("Invalid arguments for fetchwikipage tool. Required: path (string)");
-            }
+        if (name === "getwiki") {
+          if (!isGetWikiArgs(args)) {
+            throw new Error("Invalid arguments");
+          }
 
-            const { path } = args;
-            const wikiResult = await fetchWikiPage(path);
-
-            if (!wikiResult.success) {
-              const errorResponse = {
-                success: false,
-                url: wikiResult.url,
-                status: wikiResult.status,
-                error: wikiResult.error,
-                message: wikiResult.status === 404
-                  ? `Wiki page not found at path: ${path}`
-                  : `Failed to fetch wiki page: ${wikiResult.error}`,
-              };
-
+          let result;
+          if (args?.path) {
+            // Fetch specific page
+            const pageResult = await fetchWikiPage(args.path);
+            if (pageResult.error) {
               result = {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(errorResponse, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text: pageResult.error }],
                 isError: true,
               };
             } else {
-              const successResponse = {
-                success: true,
-                url: wikiResult.url,
-                status: wikiResult.status,
-                contentLength: wikiResult.content?.length || 0,
-                content: wikiResult.content,
-              };
-
               result = {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(successResponse, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text: pageResult.text || "" }],
               };
             }
-            break;
-          }
-
-          case "getwikilisting": {
-            const listingResult = await getWikiListing();
-
-            if (!listingResult.success) {
-              const errorResponse = {
-                success: false,
-                url: listingResult.url,
-                status: listingResult.status,
-                error: listingResult.error,
-                message: `Failed to fetch wiki listing: ${listingResult.error}`,
-              };
-
+          } else {
+            // List all pages
+            const listResult = await getWikiPages();
+            if (listResult.error) {
               result = {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(errorResponse, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text: listResult.error }],
                 isError: true,
               };
             } else {
-              const successResponse = {
-                success: true,
-                url: listingResult.url,
-                status: listingResult.status,
-                count: listingResult.count,
-                pages: listingResult.pages,
-              };
-
+              const text = `Wiki pages (${listResult.pages?.length || 0}):\n${listResult.pages?.join("\n") || ""}`;
               result = {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(successResponse, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text }],
               };
             }
-            break;
           }
 
-          default:
-            throw new Error(`Unknown tool: ${name}`);
+          return createJsonResponse({
+            jsonrpc: "2.0",
+            id: requestId,
+            result,
+          });
         }
 
-        responseData = {
-          jsonrpc: "2.0",
-          id: requestId,
-          result,
-        };
-      } else if (body.method === "initialize") {
-        responseData = {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      if (body.method === "initialize") {
+        return createJsonResponse({
           jsonrpc: "2.0",
           id: requestId,
           result: {
             protocolVersion: "2024-11-05",
-            capabilities: {
-              tools: {
-                listChanged: false,
-              },
-              prompts: {
-                listChanged: false,
-              },
-              resources: {
-                listChanged: false,
-              },
-            },
-            serverInfo: {
-              name: "Casey's Public Info MCP",
-              version: "1.0.0",
-            },
+            capabilities: { tools: {}, prompts: {}, resources: {} },
+            serverInfo: { name: "Casey's Public Info MCP", version: "1.0.0" },
           },
-        };
-      } else if (body.method === "notifications/initialized") {
-        return new Response(null, {
-          status: 204,
-          headers: getCorsHeaders(),
         });
-      } else {
-        throw new Error(`Unknown method: ${body.method}`);
       }
 
-      return createJsonResponse(responseData);
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 204, headers: getCorsHeaders() });
+      }
+
+      throw new Error(`Unknown method: ${body.method}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-      let requestId: string | number | undefined;
-      try {
-        const body = await request.clone().json();
-        if (isMCPRequest(body)) {
-          requestId = body.id;
-        }
-      } catch {
-        // If we can't parse the request, continue without request id
-      }
-
-      return createJsonResponse(
-        {
-          jsonrpc: "2.0",
-          ...(requestId !== undefined && { id: requestId }),
-          error: {
-            code: -32603,
-            message: errorMessage,
-          },
-        },
-        500
-      );
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      return createJsonResponse({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: msg },
+      }, 500);
     }
   },
 };

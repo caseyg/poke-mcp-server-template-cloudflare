@@ -4,8 +4,7 @@ An MCP server for accessing Casey Gollan's public information, running on Cloudf
 
 ## Available Tools
 
-- **fetchwikipage** - Fetch content from cag.wiki
-- **getwikilisting** - List all wiki pages
+- **getwiki** - Access Casey's wiki at cag.wiki. Call without args to list pages, or with `path` to get page content.
 
 ## Local Development
 
