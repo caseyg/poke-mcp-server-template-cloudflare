@@ -4,62 +4,40 @@ This file provides comprehensive guidance for AI assistants working with this co
 
 ## Project Overview
 
-This is a **Model Context Protocol (MCP) server template** with dual deployment options:
-- **TypeScript/Cloudflare Workers** (primary, production-ready)
-- **Python/FastMCP + Render** (alternative deployment)
-
-The MCP server exposes tools that AI assistants (like those in Poke.com) can call via a standardized protocol.
+This is a **Model Context Protocol (MCP) server** deployed on Cloudflare Workers. The MCP server exposes tools that AI assistants (like those in Poke.com) can call via a standardized protocol.
 
 ## Repository Structure
 
 ```
 poke-mcp-server-template-cloudflare/
 ├── src/
-│   ├── index.ts              # Main Cloudflare Workers MCP server (TypeScript)
-│   └── server.py             # Alternative Python/FastMCP server
-├── .github/
-│   └── workflows/
-│       └── deploy.yml        # GitHub Actions CI/CD for Cloudflare
-├── package.json              # Node.js dependencies and scripts
+│   └── index.ts              # Main Cloudflare Workers MCP server
+├── package.json              # Dependencies and scripts
 ├── tsconfig.json             # TypeScript configuration (strict mode)
 ├── wrangler.toml             # Cloudflare Workers configuration
-├── render.yaml               # Render.com deployment config (Python)
-├── requirements.txt          # Python dependencies
 └── README.md                 # User documentation
 ```
 
 ## Development Commands
 
-### TypeScript/Cloudflare Version (Primary)
-
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Start local development server (http://localhost:8787/mcp)
-npm run dev
+bun run dev
 
 # Build TypeScript to dist/
-npm run build
+bun run build
 
 # Type-check without emitting
-npm run type-check
+bun run type-check
 
 # Run tests
-npm test
+bun test
 
 # Deploy to Cloudflare Workers
-npm run deploy
-```
-
-### Python Version (Alternative)
-
-```bash
-# Setup environment
-pip install -r requirements.txt
-
-# Run server (http://localhost:8000/mcp)
-python src/server.py
+bun run deploy
 ```
 
 ### Testing with MCP Inspector
@@ -67,7 +45,7 @@ python src/server.py
 ```bash
 # Start local server first, then in another terminal:
 npx @modelcontextprotocol/inspector
-# Connect to http://localhost:8787/mcp (TypeScript) or http://localhost:8000/mcp (Python)
+# Connect to http://localhost:8787/mcp
 # Use "Streamable HTTP" transport
 ```
 
@@ -101,7 +79,7 @@ The MCP endpoint is `/mcp` (NOT root `/`). All MCP requests must be:
 
 ### Type Guards
 
-Use type guard functions for runtime validation in TypeScript:
+Use type guard functions for runtime validation:
 
 ```typescript
 function isGreetArgs(args: unknown): args is GreetArgs {
@@ -176,9 +154,7 @@ if (error instanceof Error) {
 
 ## Adding New Tools
 
-### TypeScript (src/index.ts)
-
-1. Add tool definition to the `TOOLS` array:
+1. Add tool definition to the `TOOLS` array in `src/index.ts`:
 
 ```typescript
 {
@@ -232,17 +208,9 @@ case "my_tool": {
 }
 ```
 
-### Python (src/server.py)
-
-```python
-@mcp.tool(description="Description of what this tool does")
-def my_tool(param1: str) -> str:
-    return f"Result: {param1}"
-```
-
 ## Configuration
 
-### wrangler.toml (Cloudflare Workers)
+### wrangler.toml
 
 - `name`: Worker name (appears in URL)
 - `workers_dev`: Enable workers.dev subdomain
@@ -257,20 +225,6 @@ def my_tool(param1: str) -> str:
 - No unused locals/parameters allowed
 - Isolated modules for edge compatibility
 
-## CI/CD
-
-GitHub Actions workflow (`.github/workflows/deploy.yml`) deploys to Cloudflare on push to `main`:
-
-1. Checkout code
-2. Setup Node.js 20
-3. Install dependencies (`npm ci`)
-4. Build TypeScript (`npm run build`)
-5. Deploy via Wrangler action
-
-**Required GitHub Secrets:**
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-
 ## Important Notes
 
 1. **MCP Endpoint**: Always use `/mcp`, not root `/`
@@ -283,10 +237,10 @@ GitHub Actions workflow (`.github/workflows/deploy.yml`) deploys to Cloudflare o
 
 When modifying the server:
 
-- [ ] `npm run type-check` passes
-- [ ] `npm run build` succeeds
-- [ ] `npm test` passes
-- [ ] Local dev server starts (`npm run dev`)
+- [ ] `bun run type-check` passes
+- [ ] `bun run build` succeeds
+- [ ] `bun test` passes
+- [ ] Local dev server starts (`bun run dev`)
 - [ ] MCP Inspector can connect and list tools
 - [ ] Each tool can be called successfully
 
